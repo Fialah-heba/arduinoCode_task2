@@ -1,0 +1,115 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// Initialize the LCD with I2C address 0x27
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Define the pins connected to the L293D IC
+#define MOTOR_A_EN 11   // Enable pin for Motor A (PWM)
+#define MOTOR_A_IN1 8   // Input 1 for Motor A (Direction)
+#define MOTOR_A_IN2 9   // Input 2 for Motor A (Direction)
+
+// Define the analog pin connected to the potentiometer
+#define POT_PIN A0
+
+// Define the encoder pins
+#define Encoder_output_A 2 // Encoder output A connected to pin 2 (Interrupt)
+#define Encoder_output_B 3 // Encoder output B connected to pin 3
+
+// Variables
+volatile int Count_pulses = 0;  // Pulse count
+String motorDirection = "Stopped"; // Motor direction
+
+const int pulsesPerRevolution = 67;  // Number of pulses per revolution
+const float degreePerPulse = 360.0 / pulsesPerRevolution;  // Degrees per pulse (5° per pulse)
+
+void setup() {
+  // Initialize serial communication
+  Serial.begin(9600);
+
+  Count_pulses = 0 ;
+
+  // Initialize motor control pins as outputs
+  pinMode(MOTOR_A_EN, OUTPUT);
+  pinMode(MOTOR_A_IN1, OUTPUT);
+  pinMode(MOTOR_A_IN2, OUTPUT);
+
+  // Initialize encoder pins as inputs
+  pinMode(Encoder_output_A, INPUT);
+  pinMode(Encoder_output_B, INPUT);
+
+  // Attach interrupt for encoder output A
+  attachInterrupt(digitalPinToInterrupt(Encoder_output_A), DC_Motor_Encoder, RISING);
+
+  // Initialize the LCD
+  lcd.init();
+  lcd.backlight(); 
+}
+
+void loop() {
+  // Read the analog value from the potentiometer
+  int potValue = analogRead(POT_PIN);
+
+  // Map the potentiometer value (0-1023) to motor speed (0-255)
+  int motorSpeed = 0;
+
+  // Determine direction and speed
+  if (potValue < 512) {
+    motorSpeed = map(potValue, 512, 0, 0, 255);  // Speed for CCW
+    motorDirection = "CW";  // Counterclockwise
+    digitalWrite(MOTOR_A_IN1, HIGH);
+    digitalWrite(MOTOR_A_IN2, LOW);
+  } else {
+    motorSpeed = map(potValue, 512, 1023, 0, 255);  // Speed for CW
+    motorDirection = "CCW";  // Clockwise
+    digitalWrite(MOTOR_A_IN1, LOW);
+    digitalWrite(MOTOR_A_IN2, HIGH);
+  }
+
+  // Set motor speed
+  analogWrite(MOTOR_A_EN, motorSpeed);
+
+  // Calculate the angle (in degrees)
+  float motorAngle = Count_pulses * degreePerPulse;
+
+  // Reset the angle if it reaches 360° (1 revolution)
+  if (360 < abs(motorAngle)) {
+    Count_pulses = 0;  // Reset pulse count after one full revolution
+    motorAngle = 0;  // Reset angle
+  }
+
+  // Display the motor speed, direction, and angle on Serial Monitor
+  Serial.print("Motor Speed: ");
+  Serial.print(motorSpeed);
+  Serial.print(" | Pulse Count: ");
+  Serial.print(Count_pulses);
+  Serial.print(" | Angle: ");
+  Serial.print(abs(motorAngle));
+  Serial.print("° | Direction: ");
+  Serial.println(motorDirection);
+
+  // Display motor direction, speed, and angle on LCD
+  lcd.setCursor(0, 0);
+  lcd.print("Dir: ");
+  lcd.print(motorDirection);
+  lcd.print("   ");  // Clear extra characters if needed
+
+  lcd.setCursor(0, 1);
+  lcd.print("Angle: ");
+  lcd.print(abs(motorAngle), 1);  // Print the angle with 1 decimal place
+  lcd.print("°   ");  // Clear extra characters if needed
+
+  delay(20);  // Small delay for stability
+}
+
+// Interrupt service routine for encoder output A
+void DC_Motor_Encoder() {
+  int b = digitalRead(Encoder_output_B);
+  
+  // Increment or decrement pulse count based on encoder output B
+  if (b > 0) {
+    Count_pulses++;
+  } else {
+    Count_pulses--;
+  }
+}
